@@ -22,6 +22,17 @@ using System.Windows.Forms;
 
 namespace ASCOM.PB100.Switch
 {
+    internal class SwitchDTO
+    {
+        public int Id { get; set; }
+        public int HardwareId { get; set; }
+        public string Name { get; set; }
+        public string Describtion { get; set; }
+        public bool IsWriteable { get; set; }
+        public double MaxValue { get; set; }
+        public bool IsAnalog { get; set; }
+    }
+
     //
     // TODO Replace the not implemented exceptions with code to implement the function or throw the appropriate ASCOM exception.
     //
@@ -54,18 +65,13 @@ namespace ASCOM.PB100.Switch
         private static object _lock = new object();
 
         // definitions
-        private static readonly string[] _switchNames = {
-            "12V Out #1",
-            "12V Out #2",
-            "12V Out #3",
-            "12V Out #4"
-        };
-
-        private static readonly string[] _switchDescriptions = {
-            "12V Out #1",
-            "12V Out #2",
-            "12V Out #3",
-            "12V Out #4"
+        private static readonly SwitchDTO[] _switches = {
+            new SwitchDTO() { Id = 0, HardwareId = 1, Name = "Channel #1", Describtion = "12V Output", IsWriteable = true, IsAnalog = false },
+            new SwitchDTO() { Id = 1, HardwareId = 2, Name = "Channel #2", Describtion = "12V Output", IsWriteable = true, IsAnalog = false },
+            new SwitchDTO() { Id = 2, HardwareId = 3, Name = "Channel #3", Describtion = "12V Output", IsWriteable = true, IsAnalog = false },
+            new SwitchDTO() { Id = 3, HardwareId = 4, Name = "Channel #4", Describtion = "12V Output", IsWriteable = true, IsAnalog = false },
+            new SwitchDTO() { Id = 4, HardwareId = 5, Name = "Stromverbrauch", Describtion = "Stromverbrauch aller Kanäle in Ampere", IsWriteable = false, MaxValue = 20.00, IsAnalog = true },
+            new SwitchDTO() { Id = 5, HardwareId = 6, Name = "Leistung", Describtion = "Verbrauchte Leistung aller Kanäle in Watt", IsWriteable = false, MaxValue = 240.00, IsAnalog = true },
         };
 
         /// <summary>
@@ -432,7 +438,7 @@ namespace ASCOM.PB100.Switch
 
         #region ISwitchV2 Implementation
 
-        private static short numSwitch = 4;
+        private static short numSwitch = (short)_switches.Length;
 
         /// <summary>
         /// The number of switches managed by this driver
@@ -456,7 +462,7 @@ namespace ASCOM.PB100.Switch
         {
             Validate("GetSwitchName", id);
             
-            return _switchNames[id];
+            return _switches[id].Name;
         }
 
         /// <summary>
@@ -482,7 +488,8 @@ namespace ASCOM.PB100.Switch
         internal static string GetSwitchDescription(short id)
         {
             Validate("GetSwitchDescription", id);
-            return _switchDescriptions[id];
+
+            return _switches[id].Describtion;
         }
 
         /// <summary>
@@ -495,11 +502,12 @@ namespace ASCOM.PB100.Switch
         /// </returns>
         internal static bool CanWrite(short id)
         {
-            bool writable = true;
+            bool writable = _switches[id].IsWriteable;
+
             Validate("CanWrite", id);
-            // default behavour is to report true
             LogMessage("CanWrite", $"CanWrite({id}): {writable}");
-            return true;
+
+            return writable;
         }
 
         #region Boolean switch members
@@ -515,7 +523,7 @@ namespace ASCOM.PB100.Switch
 
             lock (_lock)
             {
-                int realSwitch = id + 1;
+                int realSwitch = _switches[id].HardwareId;
                 string command = $"P{realSwitch}";
                 SerialTransmit(command);
 
@@ -542,7 +550,7 @@ namespace ASCOM.PB100.Switch
                 return;
             }
 
-            int realSwitch = id + 1;
+            int realSwitch = _switches[id].HardwareId;
             string command = $"P{realSwitch}:{(state ? 1 : 0)}";
             SerialTransmit(command);
 
@@ -566,6 +574,12 @@ namespace ASCOM.PB100.Switch
         internal static double MaxSwitchValue(short id)
         {
             Validate("MaxSwitchValue", id);
+            
+            if (_switches[id].IsAnalog)
+            {
+                return _switches[id].MaxValue;
+            }
+
             LogMessage("MaxSwitchValue", $"MaxSwitchValue({id}) - not implemented");
             throw new MethodNotImplementedException("MaxSwitchValue");
         }
@@ -578,6 +592,12 @@ namespace ASCOM.PB100.Switch
         internal static double MinSwitchValue(short id)
         {
             Validate("MinSwitchValue", id);
+            
+            if (_switches[id].IsAnalog)
+            {
+                return 0.00;
+            }
+
             LogMessage("MinSwitchValue", $"MinSwitchValue({id}) - not implemented");
             throw new MethodNotImplementedException("MinSwitchValue");
         }
@@ -590,6 +610,12 @@ namespace ASCOM.PB100.Switch
         internal static double SwitchStep(short id)
         {
             Validate("SwitchStep", id);
+            
+            if (_switches[id].IsAnalog)
+            {
+                return 0.01;
+            }
+
             LogMessage("SwitchStep", $"SwitchStep({id}) - not implemented");
             throw new MethodNotImplementedException("SwitchStep");
         }
@@ -603,6 +629,30 @@ namespace ASCOM.PB100.Switch
         internal static double GetSwitchValue(short id)
         {
             Validate("GetSwitchValue", id);
+            
+            if (_switches[id].IsAnalog)
+            {
+                int realSwitch = _switches[id].HardwareId;
+                SerialTransmit("CURRENT");
+                var response = SerialReceive();
+                response = response.Replace("CURRENT:", "");
+                response = response.Replace(TERMINATION_CHAR, "");
+                response = response.Trim();
+
+                if (id == 4)
+                {
+                    double current = double.Parse(response, CultureInfo.InvariantCulture) / 1000;
+
+                    return Math.Round(current, 2);
+                }
+                else if (id == 5)
+                {
+                    double power = 12 * (double.Parse(response, CultureInfo.InvariantCulture) / 1000);
+
+                    return Math.Round(power, 2);
+                }
+            }
+
             LogMessage("GetSwitchValue", $"GetSwitchValue({id}) - not implemented");
             throw new MethodNotImplementedException("GetSwitchValue");
         }
@@ -615,13 +665,14 @@ namespace ASCOM.PB100.Switch
         internal static void SetSwitchValue(short id, double value)
         {
             Validate("SetSwitchValue", id, value);
-            if (!CanWrite(id))
+            if (CanWrite(id) && _switches[id].IsAnalog)
             {
-                LogMessage("SetSwitchValue", $"SetSwitchValue({id}) - Cannot write");
-                throw new ASCOM.MethodNotImplementedException($"SetSwitchValue({id}) - Cannot write");
+                LogMessage("SetSwitchValue", $"SetSwitchValue({id}) - not implemented");
+                throw new MethodNotImplementedException("SetSwitchValue");
             }
-            LogMessage("SetSwitchValue", $"SetSwitchValue({id}) = {value} - not implemented");
-            throw new MethodNotImplementedException("SetSwitchValue");
+
+            LogMessage("SetSwitchValue", $"SetSwitchValue({id}) - Cannot write");
+            throw new ASCOM.MethodNotImplementedException($"SetSwitchValue({id}) - Cannot write");
         }
 
         #endregion
